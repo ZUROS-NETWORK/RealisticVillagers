@@ -18,7 +18,6 @@ import me.matsubara.realisticvillagers.files.Config;
 import me.matsubara.realisticvillagers.files.Messages;
 import me.matsubara.realisticvillagers.gui.InteractGUI;
 import me.matsubara.realisticvillagers.gui.types.MainGUI;
-import me.matsubara.realisticvillagers.manager.NametagManager;
 import me.matsubara.realisticvillagers.npc.NPC;
 import me.matsubara.realisticvillagers.tracker.VillagerTracker;
 import me.matsubara.realisticvillagers.util.ItemBuilder;
@@ -88,7 +87,7 @@ public final class VillagerListeners extends SimplePacketListenerAbstract implem
         // PlayerInteractEntityEvent won't be called if this one is cancelled.
         // With this change, we fix the client freezing for some seconds when right-clicking a villager.
         EquipmentSlot slot = wrapper.getHand() == InteractionHand.MAIN_HAND ? EquipmentSlot.HAND : EquipmentSlot.OFF_HAND;
-        if (handleInteract((Player) event.getPlayer(), slot, action, npc.get().getVillager().bukkit())) {
+        if (handleInteract((Player) event.getPlayer(), slot, action, npc.get().getNpc().bukkit())) {
             event.setCancelled(true);
         }
     }
@@ -130,26 +129,7 @@ public final class VillagerListeners extends SimplePacketListenerAbstract implem
 
         // Update villager skin when changing a job after 1 tick since this event is called before changing a job.
         // Respawn NPC with the new profession texture.
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
-            plugin.getConverter().getNPC(villager).ifPresent(npc -> {
-                NametagManager nametagManager = plugin.getNametagManager();
-                if (nametagManager != null) nametagManager.resetNametag(npc, null, true);
-            });
-            tracker.refreshNPCSkin(villager, true);
-        });
-    }
-
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onVillagerAcquireTrade(@NotNull VillagerAcquireTradeEvent event) {
-        if (!(event.getEntity() instanceof Villager villager)) return;
-
-        VillagerTracker tracker = plugin.getTracker();
-        if (tracker.isInvalid(villager)) return;
-
-        plugin.getServer().getScheduler().runTask(plugin, () -> plugin.getConverter().getNPC(villager).ifPresent(npc -> {
-            NametagManager nametagManager = plugin.getNametagManager();
-            if (nametagManager != null) nametagManager.resetNametag(npc, null, true);
-        }));
+        plugin.getServer().getScheduler().runTask(plugin, () -> tracker.refreshNPCSkin(villager, true));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -251,7 +231,7 @@ public final class VillagerListeners extends SimplePacketListenerAbstract implem
         if (npc == null) return cancel;
 
         if (hand != EquipmentSlot.HAND) return true;
-        if (action != WrapperPlayClientInteractEntity.InteractAction.INTERACT) return true;
+        if (action != null && action != WrapperPlayClientInteractEntity.InteractAction.INTERACT) return true;
 
         plugin.getServer().getScheduler().runTask(plugin, (() -> {
             Messages messages = plugin.getMessages();
@@ -268,7 +248,7 @@ public final class VillagerListeners extends SimplePacketListenerAbstract implem
                 }
 
                 if (item.getType() == Material.NAME_TAG && meta.hasDisplayName()) {
-                    handleRename(player, villager, item);
+                    handleRename(player, npc, item);
                     return;
                 }
 
@@ -328,20 +308,19 @@ public final class VillagerListeners extends SimplePacketListenerAbstract implem
     }
 
     // All this is checked in the invoker method.
-    @SuppressWarnings({"DataFlowIssue", "OptionalGetWithoutIsPresent"})
-    private void handleRename(Player player, Villager villager, ItemStack item) {
-        IVillagerNPC npc = plugin.getConverter().getNPC(villager).get();
-
+    private void handleRename(Player player, IVillagerNPC npc, ItemStack item) {
         if (plugin.getInventoryListeners().notAllowedToModifyInventoryOrName(player, npc, Config.WHO_CAN_MODIFY_VILLAGER_NAME, "realisticvillagers.bypass.rename")) {
             plugin.getMessages().send(player, Messages.Message.INTERACT_FAIL_RENAME_NOT_ALLOWED);
             return;
         }
 
-        String name = ChatColor.stripColor(item.getItemMeta().getDisplayName());
+        @SuppressWarnings("DataFlowIssue") String name = ChatColor.stripColor(item.getItemMeta().getDisplayName());
         if (name.length() < 3) return;
 
         npc.setVillagerName(name);
-        plugin.getTracker().refreshNPCSkin(villager, false);
+
+        // Refresh skin.
+        plugin.getTracker().refreshNPCSkin(npc.bukkit(), false);
 
         player.getInventory().removeItem(new ItemBuilder(item.clone())
                 .setAmount(1)
@@ -409,8 +388,11 @@ public final class VillagerListeners extends SimplePacketListenerAbstract implem
         if (data.length != 2) return;
 
         String sex = data[0];
+        boolean isMale = sex.equals("male");
+        String sexFormatted = (isMale ? Config.MALE : Config.FEMALE).asString();
+
         if (!sex.equalsIgnoreCase(npc.getSex())) {
-            messages.send(player, Messages.Message.SKIN_DIFFERENT_SEX, string -> string.replace("%sex%", (sex.equals("male") ? Config.MALE : Config.FEMALE).asString()));
+            messages.send(player, Messages.Message.SKIN_DIFFERENT_SEX, string -> string.replace("%sex%", sexFormatted));
             return;
         }
 
@@ -437,8 +419,8 @@ public final class VillagerListeners extends SimplePacketListenerAbstract implem
 
         messages.send(player, Messages.Message.SKIN_DISGUISED, string -> string
                 .replace("%id%", String.valueOf(skinId))
-                .replace("%sex%", sex.equals("male") ? Config.MALE.asString() : Config.FEMALE.asString())
-                .replace("%profession%", plugin.getProfessionFormatted(PluginUtils.getProfessionOrType(living)))
+                .replace("%sex%", sexFormatted)
+                .replace("%profession%", plugin.getProfessionFormatted(PluginUtils.getProfessionOrType(living), isMale))
                 .replace("%age-stage%", isAdult ? Config.ADULT.asString() : Config.KID.asString()));
 
         tracker.refreshNPCSkin(living, false);
@@ -489,11 +471,6 @@ public final class VillagerListeners extends SimplePacketListenerAbstract implem
             plugin.getMessages().send(player, npc, Messages.Message.ON_HIT);
         }
 
-        NametagManager nametagManager = plugin.getNametagManager();
-        if (nametagManager != null && !hasTotem(villager) && !alive) {
-            nametagManager.remove(npc);
-        }
-
         if (!npc.isDamageSourceBlocked()) return;
 
         try {
@@ -541,16 +518,5 @@ public final class VillagerListeners extends SimplePacketListenerAbstract implem
                 npc.attack(damager);
             }
         }
-    }
-
-    private boolean hasTotem(@NotNull AbstractVillager villager) {
-        EntityEquipment equipment = villager.getEquipment();
-        if (equipment == null) return false;
-
-        ItemStack mainHand = equipment.getItemInMainHand();
-        if (mainHand.getType() == Material.TOTEM_OF_UNDYING) return true;
-
-        ItemStack offHand = equipment.getItemInOffHand();
-        return offHand.getType() == Material.TOTEM_OF_UNDYING;
     }
 }

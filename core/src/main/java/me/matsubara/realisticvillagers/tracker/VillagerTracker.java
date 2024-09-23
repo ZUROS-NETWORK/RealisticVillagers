@@ -13,7 +13,6 @@ import me.matsubara.realisticvillagers.handler.npc.NPCHandler;
 import me.matsubara.realisticvillagers.handler.protocol.VillagerHandler;
 import me.matsubara.realisticvillagers.listener.spawn.BukkitSpawnListeners;
 import me.matsubara.realisticvillagers.listener.spawn.PaperSpawnListeners;
-import me.matsubara.realisticvillagers.manager.NametagManager;
 import me.matsubara.realisticvillagers.npc.NPC;
 import me.matsubara.realisticvillagers.npc.NPCPool;
 import me.matsubara.realisticvillagers.task.PreviewTask;
@@ -217,10 +216,6 @@ public final class VillagerTracker implements Listener {
 
         if (entity.getType() == EntityType.VILLAGER && reason == EntityTransformEvent.TransformReason.LIGHTNING) {
             removeNPC(event.getEntity().getEntityId());
-
-            NametagManager nametagManager = plugin.getNametagManager();
-            if (nametagManager != null) plugin.getConverter().getNPC((Villager) entity)
-                    .ifPresent(nametagManager::remove);
             return;
         }
 
@@ -301,17 +296,23 @@ public final class VillagerTracker implements Listener {
         if (!(event.getEntity() instanceof LivingEntity living)) return;
         if (isInvalid(living)) return;
 
-        NametagManager nametagManager = plugin.getNametagManager();
-        if (nametagManager == null) return;
+        IVillagerNPC npc = plugin.getConverter().getNPC(living).orElse(null);
+        if (npc == null) return;
 
-        plugin.getServer().getScheduler().runTask(plugin, () -> plugin.getConverter().getNPC(living).ifPresent(npc -> {
-            EntityPotionEffectEvent.Action action = event.getAction();
-            if (action == EntityPotionEffectEvent.Action.CLEARED || action == EntityPotionEffectEvent.Action.REMOVED) {
-                nametagManager.resetNametag(npc, null, true);
-            } else {
-                nametagManager.remove(npc);
+        NPC temp = plugin.getTracker().getNPC(npc.bukkit().getEntityId()).orElse(null);
+        if (temp == null) return;
+
+        EntityPotionEffectEvent.Action action = event.getAction();
+
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            for (Player player : temp.getSeeingPlayers()) {
+                if (action == EntityPotionEffectEvent.Action.CLEARED || action == EntityPotionEffectEvent.Action.REMOVED) {
+                    temp.spawnNametags(player, true);
+                } else {
+                    temp.hideNametags(player);
+                }
             }
-        }));
+        });
     }
 
     @EventHandler
@@ -566,10 +567,12 @@ public final class VillagerTracker implements Listener {
         try {
             int finalKey = key;
             config.save(pair.getKey());
+
+            boolean isMale = sex.equals("male");
             plugin.getMessages().send(sender, Messages.Message.SKIN_ADDED, string -> string
                     .replace("%id%", String.valueOf(finalKey))
-                    .replace("%profession%", plugin.getProfessionFormatted(profession))
-                    .replace("%sex%", (sex.equals("male") ? Config.MALE : Config.FEMALE).asString())
+                    .replace("%profession%", plugin.getProfessionFormatted(profession, isMale))
+                    .replace("%sex%", (isMale ? Config.MALE : Config.FEMALE).asString())
                     .replace("%age-stage%", (isAdult ? Config.ADULT : Config.KID).asString()));
         } catch (IOException exception) {
             exception.printStackTrace();
@@ -659,7 +662,7 @@ public final class VillagerTracker implements Listener {
     }
 
     public boolean shouldRename(@NotNull String name) {
-        return name.isEmpty() || name.equals(VillagerTracker.HIDE_NAMETAG_NAME);
+        return name.isBlank() || name.equals(VillagerTracker.HIDE_NAMETAG_NAME);
     }
 
     public void refreshNPCSkin(LivingEntity living, boolean happyParticles) {
@@ -694,7 +697,7 @@ public final class VillagerTracker implements Listener {
         Logger logger = plugin.getLogger();
 
         // Only log if error is severe.
-        if (textures.getSignature().equalsIgnoreCase("true")) {
+        if ("true".equalsIgnoreCase(textures.getSignature())) {
             logger.severe(textures.getValue());
             return null;
         }

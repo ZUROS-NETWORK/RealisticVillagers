@@ -149,7 +149,7 @@ public class NMSConverter implements INMSConverter {
     @Override
     public void registerEntities() {
         // "factory" field.
-        Field field = Reflection.getFieldRaw(EntityType.class, EntityType.EntityFactory.class, "bA", "factory");
+        Field field = Reflection.getFieldRaw(EntityType.class, EntityType.EntityFactory.class, "bF", "factory");
         if (field == null) return;
 
         Reflection.setFieldUsingUnsafe(
@@ -346,15 +346,18 @@ public class NMSConverter implements INMSConverter {
 
         if (Math.random() > chance * multiplier) return item;
 
-        net.minecraft.world.item.ItemStack nmsItem = CraftItemStack.asNMSCopy(item);
-        EnchantmentHelper.enchantItemFromProvider(
-                nmsItem,
-                handle.registryAccess(),
-                VanillaEnchantmentProviders.MOB_SPAWN_EQUIPMENT,
-                difficultyInstance,
-                handle.random);
-
-        return CraftItemStack.asBukkitCopy(nmsItem);
+        try {
+            net.minecraft.world.item.ItemStack nms = CraftItemStack.asNMSCopy(item);
+            EnchantmentHelper.enchantItemFromProvider(
+                    nms,
+                    handle.registryAccess(),
+                    VanillaEnchantmentProviders.MOB_SPAWN_EQUIPMENT,
+                    difficultyInstance,
+                    handle.random);
+            return CraftItemStack.asBukkitCopy(nms);
+        } catch (Exception exception) {
+            return item;
+        }
     }
 
     @Override

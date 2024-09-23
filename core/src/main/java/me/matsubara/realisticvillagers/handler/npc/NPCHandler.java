@@ -33,7 +33,7 @@ public record NPCHandler(RealisticVillagers plugin) implements SpawnCustomizer {
 
     @Override
     public void handleSpawn(@NotNull NPC npc, @NotNull Player player) {
-        IVillagerNPC villager = npc.getVillager();
+        IVillagerNPC villager = npc.getNpc();
 
         LivingEntity bukkit = villager.bukkit();
         if (bukkit == null) return;
@@ -141,7 +141,7 @@ public record NPCHandler(RealisticVillagers plugin) implements SpawnCustomizer {
     }
 
     public void adaptScale(Player player, @NotNull NPC npc) {
-        if (!(npc.getVillager().bukkit() instanceof Villager villager)) return;
+        if (!(npc.getNpc().bukkit() instanceof Villager villager)) return;
 
         WrapperPlayServerUpdateAttributes wrapper = new WrapperPlayServerUpdateAttributes(npc.getEntityId(), List.of(
                 new WrapperPlayServerUpdateAttributes.Property(Attributes.GENERIC_SCALE, villager.isAdult() ? 1.0d : 0.5d, Collections.emptyList())));
@@ -156,8 +156,9 @@ public record NPCHandler(RealisticVillagers plugin) implements SpawnCustomizer {
         return PluginUtils.getOrNull(EntityPose.class, pose.name());
     }
 
+    @SuppressWarnings("UnnecessaryDefault")
     @Contract(pure = true)
-    private com.github.retrooper.packetevents.protocol.player.EquipmentSlot slotToWrapper(@NotNull EquipmentSlot slot) {
+    private @Nullable com.github.retrooper.packetevents.protocol.player.EquipmentSlot slotToWrapper(@NotNull EquipmentSlot slot) {
         return switch (slot) {
             case HEAD -> com.github.retrooper.packetevents.protocol.player.EquipmentSlot.HELMET;
             case CHEST -> com.github.retrooper.packetevents.protocol.player.EquipmentSlot.CHEST_PLATE;
@@ -165,7 +166,7 @@ public record NPCHandler(RealisticVillagers plugin) implements SpawnCustomizer {
             case FEET -> com.github.retrooper.packetevents.protocol.player.EquipmentSlot.BOOTS;
             case HAND -> com.github.retrooper.packetevents.protocol.player.EquipmentSlot.MAIN_HAND;
             case OFF_HAND -> com.github.retrooper.packetevents.protocol.player.EquipmentSlot.OFF_HAND;
-            default -> null;
+            default -> null; // We need to keep this for EquipmentSlot#BODY.
         };
     }
 }
